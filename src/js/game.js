@@ -41,7 +41,12 @@ function createGame() {
       y: g.y,
       dir: 'up',
       speed: GHOST_SPEED,
-      kind: g.kind,
+      role: g.role || g.kind,
+      kind: g.role || g.kind, // compat
+      inPen: true,
+      released: false,
+      releaseTime: Date.now() + ( typeof RELEASE_DELAYS !== 'undefined' ? ( RELEASE_DELAYS[ g.role || g.kind ] || 0 ) : 0 ),
+      patrolCorner: { x: 26, y: 0 },
     } ) ),
   };
 }
@@ -111,39 +116,86 @@ function movePacman( game ) {
 }
 
 function decideGhost( game, g ) {
+  if ( g.inPen ) return;
   const grid = game.grid;
   const p = game.pacman;
+  const role = g.role || g.kind;
 
   const options = Object.keys( DIRS ).filter(
     ( dir ) => dir !== OPPOSITE[ g.dir ] && canMove( grid, g.x, g.y, dir, 'ghost' )
   );
-  // Sin salida (callejon): permitir el giro de 180.
   const choices = options.length ? options : [ '' + OPPOSITE[ g.dir ] ];
 
-  if ( g.kind === 'hunter' ) {
-    const px = Math.round( p.x );
-    const py = Math.round( p.y );
-    let best = choices[ 0 ];
-    let bestDist = Infinity;
-    for ( const dir of choices ) {
-      const d = DIRS[ dir ];
-      const nx = g.x + d.x;
-      const ny = g.y + d.y;
-      const dist = Math.abs( nx - px ) + Math.abs( ny - py );
-      if ( dist < bestDist ) {
-        bestDist = dist;
-        best = dir;
-      }
+  let tx, ty;
+  if ( role === 'hunter' ) {
+    tx = Math.round( p.x );
+    ty = Math.round( p.y );
+  } else if ( role === 'ambusher' ) {
+    const d = DIRS[ p.dir ] || { x: 0, y: 0 };
+    tx = Math.round( p.x ) + d.x * 4;
+    ty = Math.round( p.y ) + d.y * 4;
+  } else if ( role === 'patrol' ) {
+    // alterna entre (26,0) y (1,30) — si la esquina es muro, alterna al acercarse
+    if ( Math.abs( Math.round( g.x ) - g.patrolCorner.x ) + Math.abs( Math.round( g.y ) - g.patrolCorner.y ) <= 1 ) {
+      g.patrolCorner = g.patrolCorner.x === 26 ? { x: 1, y: 30 } : { x: 26, y: 0 };
     }
-    g.dir = best;
+    tx = g.patrolCorner.x;
+    ty = g.patrolCorner.y;
   } else {
+    // random
     g.dir = choices[ Math.floor( Math.random() * choices.length ) ];
+    return;
   }
+
+  let best = choices[ 0 ];
+  let bestDist = Infinity;
+  for ( const dir of choices ) {
+    const d = DIRS[ dir ];
+    const nx = g.x + d.x;
+    const ny = g.y + d.y;
+    const dist = Math.abs( nx - tx ) + Math.abs( ny - ty );
+    if ( dist < bestDist ) {
+      bestDist = dist;
+      best = dir;
+    }
+  }
+  g.dir = best;
 }
 
 function moveGhost( game, g ) {
   const grid = game.grid;
   const width = grid[ 0 ].length;
+
+  if ( g.inPen ) {
+    if ( !g.released ) return;
+    // escape: caminar hacia y=12 (puerta)
+    if ( aligned( g.x ) && aligned( g.y ) ) {
+      g.x = Math.round( g.x );
+      g.y = Math.round( g.y );
+      if ( g.y <= 12 ) {
+        g.inPen = false;
+        // centrar en salida
+        if ( g.x !== 13 && g.x !== 14 ) g.x = 13;
+        decideGhost( game, g );
+      } else {
+        // ir hacia la puerta (cols 13-14, y=12)
+        if ( g.x < 13 ) g.dir = 'right';
+        else if ( g.x > 14 ) g.dir = 'left';
+        else g.dir = 'up';
+      }
+      if ( !canMove( grid, g.x, g.y, g.dir, 'ghost' ) ) return;
+    }
+    const d = DIRS[ g.dir ];
+    if ( !d ) return;
+    g.x += d.x * g.speed;
+    g.y += d.y * g.speed;
+    // al cruzar y<=12 ya está fuera
+    if ( g.y <= 12 ) {
+      g.y = Math.round( g.y );
+      if ( g.y <= 12 ) g.inPen = false;
+    }
+    return;
+  }
 
   if ( aligned( g.x ) && aligned( g.y ) ) {
     g.x = Math.round( g.x );
@@ -164,10 +216,18 @@ function resetPositions( game ) {
   p.y = PACMAN_START.y;
   p.dir = 'left';
   p.nextDir = null;
+  const now = Date.now();
   game.ghosts.forEach( ( g, i ) => {
-    g.x = GHOST_STARTS[ i ].x;
-    g.y = GHOST_STARTS[ i ].y;
+    const s = GHOST_STARTS[ i ];
+    g.x = s.x;
+    g.y = s.y;
     g.dir = 'up';
+    g.role = s.role || s.kind;
+    g.kind = g.role;
+    g.inPen = true;
+    g.released = false;
+    g.releaseTime = now + ( typeof RELEASE_DELAYS !== 'undefined' ? ( RELEASE_DELAYS[ g.role ] || 0 ) : 0 );
+    g.patrolCorner = { x: 26, y: 0 };
   } );
 }
 
@@ -176,6 +236,10 @@ function collides( a, b ) {
 }
 
 function update( game ) {
+  const now = Date.now();
+  for ( const g of game.ghosts ) {
+    if ( g.inPen && !g.released && now >= g.releaseTime ) g.released = true;
+  }
   movePacman( game );
   game.ghosts.forEach( ( g ) => moveGhost( game, g ) );
 

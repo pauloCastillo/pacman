@@ -51,12 +51,39 @@ const MAZE = MAZE_STR.map( ( row ) => row.split( '' ).map( parseTile ) );
 
 const TUNNEL_ROW = 14;
 const PACMAN_START = { x: 13, y: 23 };
+
+const GHOST_ROLES = {
+  HUNTER: 'hunter',
+  AMBUSHER: 'ambusher',
+  PATROL: 'patrol',
+  RANDOM: 'random',
+};
+
+const GHOST_COLORS = {
+  [GHOST_ROLES.HUNTER]: '#FF0000',
+  [GHOST_ROLES.AMBUSHER]: '#FFB8FF',
+  [GHOST_ROLES.PATROL]: '#00FFFF',
+  [GHOST_ROLES.RANDOM]: '#FFB852',
+};
+
 const GHOST_STARTS = [
-  { x: 13, y: 14, kind: 'hunter' }, // dentro de la pen
-  { x: 14, y: 14, kind: 'random' }, // dentro de la pen
+  { x: 13, y: 14, role: GHOST_ROLES.HUNTER },
+  { x: 12, y: 14, role: GHOST_ROLES.AMBUSHER },
+  { x: 14, y: 14, role: GHOST_ROLES.PATROL },
+  { x: 13, y: 14, role: GHOST_ROLES.RANDOM },
 ];
+
+const RELEASE_DELAYS = {
+  [GHOST_ROLES.HUNTER]: 0,
+  [GHOST_ROLES.AMBUSHER]: 1500,
+  [GHOST_ROLES.PATROL]: 3000,
+  [GHOST_ROLES.RANDOM]: 4500,
+};
 
 window.MAZE = MAZE;
 window.TUNNEL_ROW = TUNNEL_ROW;
 window.PACMAN_START = PACMAN_START;
+window.GHOST_ROLES = GHOST_ROLES;
+window.GHOST_COLORS = GHOST_COLORS;
 window.GHOST_STARTS = GHOST_STARTS;
+window.RELEASE_DELAYS = RELEASE_DELAYS;

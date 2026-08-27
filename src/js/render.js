@@ -144,7 +144,12 @@ function drawHUD( ctx, game, W ) {
   ctx.fillText( 'VIDAS ' + game.lives, W * TILE - 8, 4 );
 }
 
-const GHOST_COLORS = [ '#ff0000', '#00ffff', '#ffb8ff', '#ffb852' ];
+const GHOST_COLORS_FALLBACK = {
+  hunter: '#FF0000',
+  ambusher: '#FFB8FF',
+  patrol: '#00FFFF',
+  random: '#FFB852',
+};
 
 function draw( ctx, game, frame ) {
   const grid = game.grid;
@@ -158,7 +163,11 @@ function draw( ctx, game, frame ) {
   drawDoor( ctx, grid );
   drawDots( ctx, grid );
   drawPacman( ctx, game.pacman, frame );
-  game.ghosts.forEach( ( g, i ) => drawGhost( ctx, g, GHOST_COLORS[ i ] || '#ff0000' ) );
+  const colors = ( typeof window !== 'undefined' && window.GHOST_COLORS ) || GHOST_COLORS_FALLBACK;
+  game.ghosts.forEach( ( g ) => {
+    const role = g.role || g.kind;
+    drawGhost( ctx, g, colors[ role ] || GHOST_COLORS_FALLBACK[ role ] || '#ff0000' );
+  } );
   drawHUD( ctx, game, W );
 }
 
