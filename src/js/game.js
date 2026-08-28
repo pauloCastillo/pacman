@@ -168,19 +168,18 @@ function moveGhost( game, g ) {
 
   if ( g.inPen ) {
     if ( !g.released ) return;
-    // escape: caminar hacia y=12 (puerta)
+    // escape: centrar en x=13 y subir hacia puerta y=12 → salir a y=11
     if ( aligned( g.x ) && aligned( g.y ) ) {
       g.x = Math.round( g.x );
       g.y = Math.round( g.y );
       if ( g.y <= 12 ) {
         g.inPen = false;
-        // centrar en salida
-        if ( g.x !== 13 && g.x !== 14 ) g.x = 13;
+        g.x = 13;
+        g.y = 11;
         decideGhost( game, g );
       } else {
-        // ir hacia la puerta (cols 13-14, y=12)
         if ( g.x < 13 ) g.dir = 'right';
-        else if ( g.x > 14 ) g.dir = 'left';
+        else if ( g.x > 13 ) g.dir = 'left';
         else g.dir = 'up';
       }
       if ( !canMove( grid, g.x, g.y, g.dir, 'ghost' ) ) return;
@@ -189,10 +188,11 @@ function moveGhost( game, g ) {
     if ( !d ) return;
     g.x += d.x * g.speed;
     g.y += d.y * g.speed;
-    // al cruzar y<=12 ya está fuera
+    // al cruzar la puerta entre celdas, colocar fuera
     if ( g.y <= 12 ) {
-      g.y = Math.round( g.y );
-      if ( g.y <= 12 ) g.inPen = false;
+      g.inPen = false;
+      g.y = 11;
+      g.x = 13;
     }
     return;
   }
