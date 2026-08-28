@@ -12,6 +12,16 @@ const OPPOSITE = { left: 'right', right: 'left', up: 'down', down: 'up' };
 
 const PACMAN_SPEED = 0.125; // 1/8 celda/frame -> alinea cada 8 frames
 const GHOST_SPEED = 0.1;    // 1/10 celda/frame
+// ponytail: fallbacks si maze.js no cargó (tests node)
+const _POWER_CORNERS = ( typeof POWER_CORNERS !== 'undefined' ? POWER_CORNERS : [ {x:1,y:3},{x:26,y:3},{x:1,y:23},{x:26,y:23} ] );
+const _POWER_PELLET = ( typeof POWER_PELLET !== 'undefined' ? POWER_PELLET : 4 );
+const _FRIGHTENED_MS = ( typeof FRIGHTENED_MS !== 'undefined' ? FRIGHTENED_MS : 7000 );
+const _RESPAWN_MS = ( typeof RESPAWN_MS !== 'undefined' ? RESPAWN_MS : 10000 );
+const _GHOST_SPEED_FRIGHTENED = ( typeof GHOST_SPEED_FRIGHTENED !== 'undefined' ? GHOST_SPEED_FRIGHTENED : 0.05 );
+
+function isFrightened( game ) {
+  return game.frightenedUntil && Date.now() < game.frightenedUntil;
+}
 
 // Crea una partida nueva. Copia MAZE (pristino) a game.grid para poder comer
 // dots sin destruir el original, y reiniciar.
@@ -23,11 +33,20 @@ function createGame() {
   let dots = 0;
   for ( const row of grid ) for ( const v of row ) if ( v === 2 ) dots++;
 
+  // Power pellets en esquinas: valor 4, no cuentan como dots
+  const powerTimers = _POWER_CORNERS.map( ( c ) => ( { x: c.x, y: c.y, respawnAt: 0 } ) );
+  for ( const c of _POWER_CORNERS ) {
+    if ( grid[ c.y ] && grid[ c.y ][ c.x ] === 2 ) dots--;
+    if ( grid[ c.y ] ) grid[ c.y ][ c.x ] = _POWER_PELLET;
+  }
+
   return {
     state: 'start',
     score: 0,
     lives: 3,
     dotsRemaining: dots,
+    frightenedUntil: 0,
+    powerTimers,
     grid,
     pacman: {
       x: PACMAN_START.x,
@@ -45,6 +64,7 @@ function createGame() {
       kind: g.role || g.kind, // compat
       inPen: true,
       released: false,
+      wasFrightened: false,
       releaseTime: Date.now() + ( typeof RELEASE_DELAYS !== 'undefined' ? ( RELEASE_DELAYS[ g.role || g.kind ] || 0 ) : 0 ),
       patrolCorner: { x: 26, y: 0 },
     } ) ),
@@ -99,11 +119,23 @@ function movePacman( game ) {
       p.dir = p.nextDir;
       p.nextDir = null;
     }
-    // Comer dot.
+    // Comer dot / power pellet.
     if ( grid[ p.y ][ p.x ] === 2 ) {
       grid[ p.y ][ p.x ] = 0;
       game.score += 10;
       game.dotsRemaining--;
+    } else if ( grid[ p.y ][ p.x ] === _POWER_PELLET ) {
+      grid[ p.y ][ p.x ] = 0;
+      game.score += 50;
+      game.frightenedUntil = Date.now() + _FRIGHTENED_MS;
+      // invertir dirección de fantasmas fuera del pen al entrar en frightened
+      for ( const g of game.ghosts ) {
+        if ( !g.inPen && !g.wasFrightened ) {
+          g.dir = OPPOSITE[ g.dir ] || g.dir;
+        }
+      }
+      const t = game.powerTimers.find( ( pt ) => pt.x === p.x && pt.y === p.y );
+      if ( t ) t.respawnAt = Date.now() + _RESPAWN_MS;
     }
     // Si no puede seguir, se detiene en la celda.
     if ( !canMove( grid, p.x, p.y, p.dir, 'pacman' ) ) return;
@@ -120,6 +152,18 @@ function decideGhost( game, g ) {
   const grid = game.grid;
   const p = game.pacman;
   const role = g.role || g.kind;
+
+  const fright = isFrightened( game ) && !g.inPen;
+  if ( fright ) {
+    g.speed = _GHOST_SPEED_FRIGHTENED;
+    const opts = Object.keys( DIRS ).filter(
+      ( dir ) => dir !== OPPOSITE[ g.dir ] && canMove( grid, g.x, g.y, dir, 'ghost' )
+    );
+    const ch = opts.length ? opts : [ '' + OPPOSITE[ g.dir ] ];
+    g.dir = ch[ Math.floor( Math.random() * ch.length ) ];
+    return;
+  }
+  g.speed = GHOST_SPEED;
 
   const options = Object.keys( DIRS ).filter(
     ( dir ) => dir !== OPPOSITE[ g.dir ] && canMove( grid, g.x, g.y, dir, 'ghost' )
@@ -205,6 +249,9 @@ function moveGhost( game, g ) {
   }
 
   const d = DIRS[ g.dir ];
+  // velocidad según frightened (también fuera de intersecciones)
+  if ( isFrightened( game ) && !g.inPen ) g.speed = _GHOST_SPEED_FRIGHTENED;
+  else if ( !g.inPen ) g.speed = GHOST_SPEED;
   g.x += d.x * g.speed;
   g.y += d.y * g.speed;
   wrapTunnel( g, width );
@@ -217,15 +264,18 @@ function resetPositions( game ) {
   p.dir = 'left';
   p.nextDir = null;
   const now = Date.now();
+  game.frightenedUntil = 0;
   game.ghosts.forEach( ( g, i ) => {
     const s = GHOST_STARTS[ i ];
     g.x = s.x;
     g.y = s.y;
     g.dir = 'up';
+    g.speed = GHOST_SPEED;
     g.role = s.role || s.kind;
     g.kind = g.role;
     g.inPen = true;
     g.released = false;
+    g.wasFrightened = false;
     g.releaseTime = now + ( typeof RELEASE_DELAYS !== 'undefined' ? ( RELEASE_DELAYS[ g.role ] || 0 ) : 0 );
     g.patrolCorner = { x: 26, y: 0 };
   } );
@@ -237,14 +287,41 @@ function collides( a, b ) {
 
 function update( game ) {
   const now = Date.now();
+  // respawn power pellets cada 10s
+  if ( game.powerTimers ) {
+    for ( const t of game.powerTimers ) {
+      if ( t.respawnAt && now >= t.respawnAt && game.grid[ t.y ][ t.x ] === 0 ) {
+        game.grid[ t.y ][ t.x ] = _POWER_PELLET;
+        t.respawnAt = 0;
+      }
+    }
+  }
   for ( const g of game.ghosts ) {
     if ( g.inPen && !g.released && now >= g.releaseTime ) g.released = true;
   }
   movePacman( game );
+  // track transición frightened para invertir solo una vez
+  const frightNow = isFrightened( game );
+  for ( const g of game.ghosts ) {
+    if ( frightNow && !g.inPen && !g.wasFrightened ) {
+      g.dir = OPPOSITE[ g.dir ] || g.dir;
+    }
+    g.wasFrightened = frightNow && !g.inPen;
+  }
   game.ghosts.forEach( ( g ) => moveGhost( game, g ) );
 
   for ( const g of game.ghosts ) {
     if ( collides( game.pacman, g ) ) {
+      if ( isFrightened( game ) && !g.inPen ) {
+        // comer fantasma
+        game.score += 200;
+        g.x = 13; g.y = 14;
+        g.dir = 'up'; g.speed = GHOST_SPEED;
+        g.inPen = true; g.released = false;
+        g.wasFrightened = false;
+        g.releaseTime = now + 1500; // 1.5s
+        continue;
+      }
       game.lives--;
       if ( game.lives <= 0 ) {
         game.state = 'lost';
@@ -261,3 +338,4 @@ function update( game ) {
 window.createGame = createGame;
 window.update = update;
 window.DIRS = DIRS;
+window.isFrightened = isFrightened;
