@@ -1,6 +1,6 @@
 # SPEC 02 — Salida de fantasmas del pen
 
-> **Status:** Draft
+> **Status:** Implemented
 > **Depends on:** SPEC 01
 > **Date:** 2026-08-27
 > **Objective:** Corregir la salida de los fantasmas del pen para que al liberarse crucen la puerta y queden en el mapa transitando.

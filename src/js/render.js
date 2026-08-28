@@ -79,6 +79,22 @@ function drawDots( ctx, grid ) {
   }
 }
 
+function drawPowerPellets( ctx, grid, frame ) {
+  for ( let y = 0; y < grid.length; y++ ) {
+    for ( let x = 0; x < grid[ 0 ].length; x++ ) {
+      if ( grid[ y ][ x ] !== 4 ) continue;
+      const { cx, cy } = cellCenter( x, y );
+      const pulse = 0.7 + 0.3 * Math.sin( frame * 0.15 );
+      ctx.fillStyle = '#ffb8ae';
+      ctx.globalAlpha = pulse;
+      ctx.beginPath();
+      ctx.arc( cx, cy, 6, 0, Math.PI * 2 );
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
 function drawPacman( ctx, p, frame ) {
   const { cx, cy } = cellCenter( p.x, p.y );
   let rot = 0;
@@ -162,11 +178,18 @@ function draw( ctx, game, frame ) {
   drawWalls( ctx, grid );
   drawDoor( ctx, grid );
   drawDots( ctx, grid );
+  drawPowerPellets( ctx, grid, frame );
   drawPacman( ctx, game.pacman, frame );
   const colors = ( typeof window !== 'undefined' && window.GHOST_COLORS ) || GHOST_COLORS_FALLBACK;
+  const fright = typeof isFrightened !== 'undefined' ? isFrightened( game ) : ( game.frightenedUntil && Date.now() < game.frightenedUntil );
+  const flash = fright && game.frightenedUntil - Date.now() < 2000 && Math.floor( Date.now() / 200 ) % 2 === 0;
   game.ghosts.forEach( ( g ) => {
-    const role = g.role || g.kind;
-    drawGhost( ctx, g, colors[ role ] || GHOST_COLORS_FALLBACK[ role ] || '#ff0000' );
+    if ( fright && !g.inPen ) {
+      drawGhost( ctx, g, flash ? '#ffffff' : '#2121ff' );
+    } else {
+      const role = g.role || g.kind;
+      drawGhost( ctx, g, colors[ role ] || GHOST_COLORS_FALLBACK[ role ] || '#ff0000' );
+    }
   } );
   drawHUD( ctx, game, W );
 }
